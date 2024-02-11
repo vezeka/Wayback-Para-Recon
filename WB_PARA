@@ -1,0 +1,70 @@
+#!/bin/bash
+
+# Utilisation de couleurs pour la mise en forme
+BOLD=$(tput bold)
+NORMAL=$(tput sgr0)
+RED=$(tput setaf 1)
+GREEN=$(tput setaf 2)
+
+# Le fichier de sortie global pour WB_PARA
+GLOBAL_OUTPUT_FILE=$HOME/Recon/Target/_WB_PARA_Global
+> $GLOBAL_OUTPUT_FILE  # Crée ou vide le fichier de sortie global
+
+# Écrire le chemin du fichier de sortie dans un fichier temporaire pour lsitest
+echo $GLOBAL_OUTPUT_FILE > /tmp/wayback_output_path.txt
+
+# Fonction pour extraire le domaine de base
+extract_base_domain() {
+    local FULL_DOMAIN=$1
+    local CLEANED_DOMAIN=${FULL_DOMAIN#http://}
+    CLEANED_DOMAIN=${CLEANED_DOMAIN#https://}
+    CLEANED_DOMAIN=${CLEANED_DOMAIN%%/*}
+    echo $CLEANED_DOMAIN | rev | cut -d'.' -f1-2 | rev
+}
+
+# Fonction pour traiter un domaine
+process_domain() {
+    local DOMAIN=$1
+    local BASE_DOMAIN=$(extract_base_domain $DOMAIN)
+
+    # Fichier temporaire unique pour chaque domaine
+    local TEMP_FILE="temp_urls_${BASE_DOMAIN}.txt"
+
+    # Récupération des URL avec waybackurls
+    waybackurls $DOMAIN > $TEMP_FILE
+
+    # Déclaration des paramètres d'URL et de leurs vulnérabilités associées
+    declare -A PARAMETERS
+    PARAMETERS["redir"]="Redirection ouverte, SSRF"
+    PARAMETERS["id"]="Injection SQL, IDOR"
+    PARAMETERS["file"]="Traversal de chemin, LFI, RFI"
+    PARAMETERS["search"]="XSS, Injection SQL"
+    PARAMETERS["token"]="Exposition de tokens, fuite d'informations sensibles"
+    PARAMETERS["callback"]="JSONP hi-jacking, SSRF"
+    PARAMETERS["ref"]="Redirection ouverte, Header Injection"
+    PARAMETERS["lang"]="LFI via les fichiers de langue, Template Injection"
+    PARAMETERS["action"]="Exécution de fonctions non autorisées, IDOR"
+    PARAMETERS["debug"]="Exposition d'informations sensibles, modes de débogage non sécurisés"
+
+    for param in "${!PARAMETERS[@]}"; do
+        if grep -q "?$param=" $TEMP_FILE; then
+            echo "${RED}URLs avec $param (${PARAMETERS[$param]}):${NORMAL}" | tee -a $GLOBAL_OUTPUT_FILE
+            grep "?$param=" $TEMP_FILE | tee -a $GLOBAL_OUTPUT_FILE
+            echo "" | tee -a $GLOBAL_OUTPUT_FILE
+        fi
+    done
+
+    # Supprimer le fichier temporaire unique
+    rm $TEMP_FILE
+}
+
+# Pointez vers le fichier unique 'target'
+FILE="/home/yau/Recon/Script/target"
+
+# S'assurer que le répertoire cible existe
+mkdir -p $HOME/Recon/Target
+
+# Lire chaque ligne du fichier 'target' et la traiter
+while IFS= read -r line; do
+    process_domain "$line"
+done < "$FILE"
